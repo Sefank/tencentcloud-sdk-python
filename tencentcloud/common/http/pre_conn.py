@@ -69,3 +69,15 @@ class PreConnAdapter(HTTPAdapter):
 
     def init_poolmanager(self, *args, **kwargs):
         self.poolmanager = PreConnPoolManager(self._conn_pool_size, *args, **kwargs)
+
+if __name__ == "__main__":
+    from requests import Session
+    pre_conn_pool_size = 10
+    session = Session()
+    if pre_conn_pool_size > 0:
+        adapter = PreConnAdapter(conn_pool_size=pre_conn_pool_size)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+    
+    resp = session.get("https://www.baidu.com")
+    print(resp.status_code)
