@@ -407,13 +407,18 @@ class AbstractClient(object):
         model._deserialize(resp_obj)
         return model
 
-    def _call(self, action, params, options=None, headers=None):
+    @staticmethod
+    def _header_build(headers=None):
         if headers is None:
             headers = {}
         if not isinstance(headers, dict):
             raise TencentCloudSDKException("ClientError", "headers must be a dict.")
         if "x-tc-traceid" not in {k.lower() for k in headers.keys()}:
             headers["X-TC-TraceId"] = str(uuid.uuid4())
+        return headers
+
+    def _call(self, action, params, options=None, headers=None):
+        headers = self._header_build(headers)
         if not self.profile.disable_region_breaker:
             return self._call_with_region_breaker(action, params, options, headers)
         req = RequestInternal(self._get_endpoint(),
@@ -427,11 +432,33 @@ class AbstractClient(object):
             req.header["Host"] = req.host
         return self.request.send_request(req)
 
+    async def _async_call(self, action, params, options=None, headers=None):
+        headers = self._header_build(headers)
+        if not self.profile.disable_region_breaker:
+            return self._call_with_region_breaker(action, params, options, headers)
+        req = RequestInternal(self._get_endpoint(),
+                              self.profile.httpProfile.reqMethod,
+                              self._requestPath,
+                              header=headers)
+        self._build_req_inter(action, params, req, options)
+
+        if self.profile.httpProfile.apigw_endpoint:
+            req.host = self.profile.httpProfile.apigw_endpoint
+            req.header["Host"] = req.host
+        return await self.request.async_send_request(req)
+
     def call(self, action, params, options=None, headers=None):
         resp = self._call(action, params, options, headers)
         self._check_status(resp)
         self._check_error(resp)
         logger.debug("GetResponse: %s", ResponsePrettyFormatter(resp))
+        return resp.content
+
+    async def async_call(self, action, params, options=None, headers=None):
+        resp = await self._async_call(action, params, options, headers)
+        self._check_status(resp)
+        self._check_error(resp)
+        logger.debug("AsyncGetResponse: %s", ResponsePrettyFormatter(resp))
         return resp.content
 
     def _call_with_region_breaker(self, action, params, options=None, headers=None):
