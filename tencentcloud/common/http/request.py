@@ -45,7 +45,7 @@ class ProxyConnection:
         if certification:
             pass
         if pre_conn_pool_size > 0:
-            client_kwargs["limits"] = httpx.Limits(max_connections=pre_conn_pool_size)
+            client_kwargs["limits"] = httpx.Limits(max_keepalive_connections=pre_conn_pool_size)
         
         self._client = httpx.Client(**client_kwargs)
         self._async_client = httpx.AsyncClient(**client_kwargs)
