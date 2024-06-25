@@ -21,6 +21,7 @@ import json
 import random
 import sys
 import time
+from typing import Union
 import uuid
 import warnings
 import logging
@@ -417,31 +418,68 @@ class AbstractClient(object):
             headers["X-TC-TraceId"] = str(uuid.uuid4())
         return headers
 
-    def _call(self, action, params, options=None, headers=None):
+    def _build_req(self, action, params, options, headers, with_region_breaker):
         headers = self._header_build(headers)
-        if not self.profile.disable_region_breaker:
-            return self._call_with_region_breaker(action, params, options, headers)
-        req = RequestInternal(self._get_endpoint(),
-                              self.profile.httpProfile.reqMethod,
-                              self._requestPath,
-                              header=headers)
-        self._build_req_inter(action, params, req, options)
+        endpoint = self._get_endpoint()
 
+        generation = None
+        if with_region_breaker:
+            generation, need_break = self.circuit_breaker.before_requests()
+            if need_break:
+                endpoint = self._service + "." + self.profile.region_breaker_profile.backup_endpoint
+        
+        req = RequestInternal(endpoint,
+                            self.profile.httpProfile.reqMethod,
+                            self._requestPath,
+                            header=headers)
+        self._build_req_inter(action, params, req, options)
+        return req, generation
+
+    def _call(self, action, params, options=None, headers=None, *, with_region_breaker: Union[bool, None]=None):
+        if with_region_breaker is None:
+            with_region_breaker = not self.profile.disable_region_breaker
+        
+        generation, req = self._build_req(action, params, options, headers, with_region_breaker)
+
+        if with_region_breaker:
+            resp = None
+            try:
+                resp = self.request.send_request(req)
+                self.circuit_breaker.after_requests(generation, True)
+            except TencentCloudSDKException as e:
+                if resp and "RequestId" in resp.content and e.code != "InternalError":
+                    self.circuit_breaker.after_requests(generation, True)
+                else:
+                    self.circuit_breaker.after_requests(generation, False)
+                raise e
+            return resp
+        
+        # without region breaker
         if self.profile.httpProfile.apigw_endpoint:
             req.host = self.profile.httpProfile.apigw_endpoint
             req.header["Host"] = req.host
         return self.request.send_request(req)
 
-    async def _async_call(self, action, params, options=None, headers=None):
-        headers = self._header_build(headers)
-        if not self.profile.disable_region_breaker:
-            return self._call_with_region_breaker(action, params, options, headers)
-        req = RequestInternal(self._get_endpoint(),
-                              self.profile.httpProfile.reqMethod,
-                              self._requestPath,
-                              header=headers)
-        self._build_req_inter(action, params, req, options)
+    async def _async_call(self, action, params, options=None, headers=None,  *, with_region_breaker: Union[bool, None]=None):
+        if with_region_breaker is None:
+            with_region_breaker = not self.profile.disable_region_breaker
+        
+        generation, req = self._build_req(action, params, options, headers, with_region_breaker)
 
+        if with_region_breaker:
+            resp = None
+            try:
+                resp = await self.request.async_send_request(req)
+                self.circuit_breaker.after_requests(generation, True)
+            except TencentCloudSDKException as e:
+                if resp and "RequestId" in resp.content and e.code != "InternalError":
+                    self.circuit_breaker.after_requests(generation, True)
+                else:
+                    self.circuit_breaker.after_requests(generation, False)
+                raise e
+            return resp
+
+        # without region breaker
         if self.profile.httpProfile.apigw_endpoint:
             req.host = self.profile.httpProfile.apigw_endpoint
             req.header["Host"] = req.host
@@ -461,30 +499,8 @@ class AbstractClient(object):
         logger.debug("AsyncGetResponse: %s", ResponsePrettyFormatter(resp))
         return resp.content
 
-    def _call_with_region_breaker(self, action, params, options=None, headers=None):
-        endpoint = self._get_endpoint()
-        generation, need_break = self.circuit_breaker.before_requests()
-        if need_break:
-            endpoint = self._service + "." + self.profile.region_breaker_profile.backup_endpoint
-        req = RequestInternal(endpoint,
-                              self.profile.httpProfile.reqMethod,
-                              self._requestPath,
-                              header=headers)
-        self._build_req_inter(action, params, req, options)
-        resp = None
-        try:
-            resp = self.request.send_request(req)
-            self.circuit_breaker.after_requests(generation, True)
-            return resp
-        except TencentCloudSDKException as e:
-            if resp and "RequestId" in resp.content and e.code != "InternalError":
-                self.circuit_breaker.after_requests(generation, True)
-            else:
-                self.circuit_breaker.after_requests(generation, False)
-            raise e
-
     def call_with_region_breaker(self, action, params, options=None, headers=None):
-        resp = self._call_with_region_breaker(action, params, options, headers)
+        resp = self._call(action, params, options, headers, with_region_breaker=True)
         self._check_status(resp)
         self._check_error(resp)
         return resp.content
