@@ -512,6 +512,12 @@ class AbstractClient(object):
         self._check_error(resp)
         return resp.content
 
+    async def async_call_with_region_breaker(self, action, params, options=None, headers=None):
+        resp: Response = await self._async_call(action, params, options, headers, with_region_breaker=True)
+        self._check_status(resp)
+        self._check_error(resp)
+        return resp.content
+
     def call_octet_stream(self, action, headers, body):
         """
         Invoke API with application/ocet-stream content-type.
@@ -545,6 +551,40 @@ class AbstractClient(object):
         self._check_status(resp)
         self._check_error(resp)
         return json.loads(resp.content)
+    
+    async def async_call_octet_stream(self, action, headers, body):
+        """
+        Asynchronously invoke API with application/ocet-stream content-type.
+
+        Note:
+        1. only specific API can be invoked in such manner.
+        2. only TC3-HMAC-SHA256 signature method can be specified.
+        3. only POST request method can be specified
+
+        :type action: str
+        :param action: Specific API action name.
+        :type headers: dict
+        :param headers: Header parameters for this API.
+        :type body: bytes
+        :param body: Bytes of requested body
+        """
+        if self.profile.signMethod != "TC3-HMAC-SHA256":
+            raise SDKError("ClientError", "Invalid signature method.")
+        if self.profile.httpProfile.reqMethod != "POST":
+            raise SDKError("ClientError", "Invalid request method.")
+
+        req = RequestInternal(self._get_endpoint(),
+                              self.profile.httpProfile.reqMethod,
+                              self._requestPath,
+                              header=headers)
+        req.data = body
+        options = {"IsOctetStream": True}
+        self._build_req_inter(action, None, req, options)
+
+        resp: Response = await self.request.async_send_request(req)
+        self._check_status(resp)
+        self._check_error(resp)
+        return json.loads(resp.content)
 
     def call_json(self, action, params, headers=None, options=None):
         """
@@ -560,6 +600,25 @@ class AbstractClient(object):
         :param options: request options, like {"SkipSign": False, "IsMultipart": False, "IsOctetStream": False, "BinaryParams": []}
         """
         resp: Response = self._call(action, params, options, headers)
+        self._check_status(resp)
+        self._check_error(resp)
+        logger.debug("GetResponse: %s", ResponsePrettyFormatter(resp))
+        return json.loads(resp.content)
+
+    async def async_call_json(self, action, params, headers=None, options=None):
+        """
+        Call api with json object and return with json object.
+
+        :type action: str
+        :param action: api name e.g. ``DescribeInstances``
+        :type params: dict
+        :param params: params with this action
+        :type headers: dict
+        :param headers: request header, like {"X-TC-TraceId": "ffe0c072-8a5d-4e17-8887-a8a60252abca"}
+        :type options: dict
+        :param options: request options, like {"SkipSign": False, "IsMultipart": False, "IsOctetStream": False, "BinaryParams": []}
+        """
+        resp: Response = await self._async_call(action, params, options, headers)
         self._check_status(resp)
         self._check_error(resp)
         logger.debug("GetResponse: %s", ResponsePrettyFormatter(resp))
