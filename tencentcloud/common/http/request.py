@@ -50,18 +50,26 @@ class ProxyConnection:
         self._client = httpx.Client(**client_kwargs)
         self._async_client = httpx.AsyncClient(**client_kwargs)
 
-    def request(self, method: str, url: str, body=None, headers: dict=None):
+    def request(self, method: str, url: str, body=None, headers: dict=None, stream: bool=False):
         if headers is None:
             headers = {}
         headers.setdefault("Host", self.request_host)
+        if stream:
+            return self._client.stream(
+                method=method, url=url, data=body, headers=headers
+            )
         return self._client.request(
             method=method, url=url, data=body, headers=headers
         )
-    
-    async def async_request(self, method: str, url: str, body=None, headers: dict=None):
+
+    async def async_request(self, method: str, url: str, body=None, headers: dict=None, stream: bool=False):
         if headers is None:
             headers = {}
         headers.setdefault("Host", self.request_host)
+        if stream:
+            return self._async_client.stream(
+                method=method, url=url, data=body, headers=headers
+            )
         return await self._async_client.request(
             method=method, url=url, data=body, headers=headers
         )
@@ -100,7 +108,7 @@ class ApiRequest:
     def set_debug(self, debug):
         self.debug = debug
 
-    def _request(self, req_inter):
+    def _request(self, req_inter, stream: bool=False):
         url = self._handle_host(req_inter.host)
         if self.keep_alive:
             req_inter.header["Connection"] = "Keep-Alive"
@@ -108,39 +116,41 @@ class ApiRequest:
         if req_inter.method == 'GET':
             req_inter_url = '%s?%s' % (url, req_inter.data)
             return self.conn.request(req_inter.method, req_inter_url,
-                                     None, req_inter.header)
+                                     None, req_inter.header, stream)
         elif req_inter.method == 'POST':
             return self.conn.request(req_inter.method, url,
-                                     req_inter.data, req_inter.header)
+                                     req_inter.data, req_inter.header, stream)
         raise TencentCloudSDKException(
                 "ClientParamsError", 'Method only support (GET, POST)')
         
-    async def _async_request(self, req_inter):
+    async def _async_request(self, req_inter, stream: bool=False):
         url = self._handle_host(req_inter.host)
         if self.keep_alive:
             req_inter.header["Connection"] = "Keep-Alive"
         logger.debug("SendRequest: %s" % req_inter)
         if req_inter.method == 'GET':
             req_inter_url = '%s?%s' % (url, req_inter.data)
-            return await self.conn.async_request(req_inter.method, req_inter_url,
-                                                 None, req_inter.header)
+            resp = await self.conn.async_request(req_inter.method, req_inter_url,
+                                                 None, req_inter.header, stream)
+            return resp
         elif req_inter.method == 'POST':
-            return await self.conn.async_request(req_inter.method, url,
-                                                 req_inter.data, req_inter.header)
+            resp = await self.conn.async_request(req_inter.method, url,
+                                                 req_inter.data, req_inter.header, stream)
+            return resp
         raise TencentCloudSDKException(
                 "ClientParamsError", 'Method only support (GET, POST)')
         
 
-    def send_request(self, req_inter):
+    def send_request(self, req_inter, stream: bool=False):
         try:
-            http_resp = self._request(req_inter)
+            http_resp = self._request(req_inter, stream)
         except Exception as e:
             raise TencentCloudSDKException("ClientNetworkError", str(e)) from e
         return http_resp
     
-    async def async_send_request(self, req_inter):
+    async def async_send_request(self, req_inter, stream: bool=False):
         try:
-            http_resp = await self._async_request(req_inter)
+            http_resp = await self._async_request(req_inter, stream)
         except Exception as e:
             raise TencentCloudSDKException("ClientNetworkError", str(e)) from e
         return http_resp

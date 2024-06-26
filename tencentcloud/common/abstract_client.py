@@ -27,10 +27,8 @@ import warnings
 import logging
 import logging.handlers
 
-try:
-    from urllib.parse import urlencode
-except ImportError:
-    from urllib import urlencode
+from urllib.parse import urlencode
+from httpx import Response
 
 import tencentcloud
 from tencentcloud.common.exception.tencent_cloud_sdk_exception import TencentCloudSDKException
@@ -355,8 +353,7 @@ class AbstractClient(object):
         ct = resp.headers.get('Content-Type')
         if ct not in ('text/plain', _json_content):
             return
-
-        data = json.loads(resp.content)
+        data = json.loads(resp.read())
         if "Error" in data["Response"]:
             code = data["Response"]["Error"]["Code"]
             message = data["Response"]["Error"]["Message"]
@@ -435,7 +432,12 @@ class AbstractClient(object):
         self._build_req_inter(action, params, req, options)
         return req, generation
 
-    def _call(self, action, params, options=None, headers=None, *, with_region_breaker: Union[bool, None]=None):
+    def _call(
+        self, action, params, options=None, headers=None,
+        *, 
+        with_region_breaker: Union[bool, None]=None,
+        stream: bool=False,
+    ):
         if with_region_breaker is None:
             with_region_breaker = not self.profile.disable_region_breaker
         
@@ -444,7 +446,7 @@ class AbstractClient(object):
         if with_region_breaker:
             resp = None
             try:
-                resp = self.request.send_request(req)
+                resp = self.request.send_request(req, stream)
                 self.circuit_breaker.after_requests(generation, True)
             except TencentCloudSDKException as e:
                 if resp and "RequestId" in resp.content and e.code != "InternalError":
@@ -458,9 +460,14 @@ class AbstractClient(object):
         if self.profile.httpProfile.apigw_endpoint:
             req.host = self.profile.httpProfile.apigw_endpoint
             req.header["Host"] = req.host
-        return self.request.send_request(req)
+        return self.request.send_request(req, stream)
 
-    async def _async_call(self, action, params, options=None, headers=None,  *, with_region_breaker: Union[bool, None]=None):
+    async def _async_call(
+        self, action, params, options=None, headers=None,
+        *,
+        with_region_breaker: Union[bool, None]=None,
+        stream: bool=False,
+    ):
         if with_region_breaker is None:
             with_region_breaker = not self.profile.disable_region_breaker
         
@@ -469,7 +476,7 @@ class AbstractClient(object):
         if with_region_breaker:
             resp = None
             try:
-                resp = await self.request.async_send_request(req)
+                resp = await self.request.async_send_request(req, stream)
                 self.circuit_breaker.after_requests(generation, True)
             except TencentCloudSDKException as e:
                 if resp and "RequestId" in resp.content and e.code != "InternalError":
@@ -483,24 +490,24 @@ class AbstractClient(object):
         if self.profile.httpProfile.apigw_endpoint:
             req.host = self.profile.httpProfile.apigw_endpoint
             req.header["Host"] = req.host
-        return await self.request.async_send_request(req)
+        return await self.request.async_send_request(req, stream)
 
     def call(self, action, params, options=None, headers=None):
-        resp = self._call(action, params, options, headers)
+        resp: Response = self._call(action, params, options, headers)
         self._check_status(resp)
         self._check_error(resp)
         logger.debug("GetResponse: %s", ResponsePrettyFormatter(resp))
         return resp.content
 
     async def async_call(self, action, params, options=None, headers=None):
-        resp = await self._async_call(action, params, options, headers)
+        resp: Response = await self._async_call(action, params, options, headers)
         self._check_status(resp)
         self._check_error(resp)
         logger.debug("AsyncGetResponse: %s", ResponsePrettyFormatter(resp))
         return resp.content
 
     def call_with_region_breaker(self, action, params, options=None, headers=None):
-        resp = self._call(action, params, options, headers, with_region_breaker=True)
+        resp: Response = self._call(action, params, options, headers, with_region_breaker=True)
         self._check_status(resp)
         self._check_error(resp)
         return resp.content
@@ -534,7 +541,7 @@ class AbstractClient(object):
         options = {"IsOctetStream": True}
         self._build_req_inter(action, None, req, options)
 
-        resp = self.request.send_request(req)
+        resp: Response = self.request.send_request(req)
         self._check_status(resp)
         self._check_error(resp)
         return json.loads(resp.content)
@@ -552,7 +559,7 @@ class AbstractClient(object):
         :type options: dict
         :param options: request options, like {"SkipSign": False, "IsMultipart": False, "IsOctetStream": False, "BinaryParams": []}
         """
-        resp = self._call(action, params, options, headers)
+        resp: Response = self._call(action, params, options, headers)
         self._check_status(resp)
         self._check_error(resp)
         logger.debug("GetResponse: %s", ResponsePrettyFormatter(resp))
