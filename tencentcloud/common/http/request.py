@@ -62,7 +62,7 @@ class ProxyConnection:
         if headers is None:
             headers = {}
         headers.setdefault("Host", self.request_host)
-        return self._async_client.request(
+        return await self._async_client.request(
             method=method, url=url, data=body, headers=headers
         )
 

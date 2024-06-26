@@ -439,7 +439,7 @@ class AbstractClient(object):
         if with_region_breaker is None:
             with_region_breaker = not self.profile.disable_region_breaker
         
-        generation, req = self._build_req(action, params, options, headers, with_region_breaker)
+        req, generation = self._build_req(action, params, options, headers, with_region_breaker)
 
         if with_region_breaker:
             resp = None
@@ -464,7 +464,7 @@ class AbstractClient(object):
         if with_region_breaker is None:
             with_region_breaker = not self.profile.disable_region_breaker
         
-        generation, req = self._build_req(action, params, options, headers, with_region_breaker)
+        req, generation = self._build_req(action, params, options, headers, with_region_breaker)
 
         if with_region_breaker:
             resp = None

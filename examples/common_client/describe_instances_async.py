@@ -42,7 +42,7 @@ async def main ():
         # 实例化要请求的common client对象，clientProfile是可选的。
         common_client = CommonClient("cvm", '2017-03-12', cred, "ap-shanghai", profile=clientProfile)
         # 接口参数作为json字典传入，得到的输出也是json字典，请求失败将抛出异常，headers为可选参数
-        resp = common_client.call("DescribeInstances", {"Limit": 10}, headers=headers)
+        resp = await common_client.async_call("DescribeInstances", {"Limit": 10}, headers=headers)
 
         print(resp)
     except TencentCloudSDKException as err:
